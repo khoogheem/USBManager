@@ -29,6 +29,9 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+# Framework Folder
+Framework
+
 # CocoaPods
 #
 # We recommend against adding the Pods directory to your .gitignore. However
