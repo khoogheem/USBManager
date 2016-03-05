@@ -25,7 +25,7 @@ static void Handle_HIDDeviceReportCallback(void *context,
 
 @interface USBDevice () {
 	//Input Buffer
-	uint8 _buffer[MAX_RECORD_LEN];
+	uint8 _usbBuffer[MAX_RECORD_LEN];
 	
 }
 
@@ -54,7 +54,7 @@ static void Handle_HIDDeviceReportCallback(void *context,
 	
 	if (result == kIOReturnSuccess) {
 		// Add a method to be called when there is data from the device
-		IOHIDDeviceRegisterInputReportCallback(_deviceRef, _buffer, MAX_RECORD_LEN, Handle_HIDDeviceReportCallback, (__bridge void*)self);
+		IOHIDDeviceRegisterInputReportCallback(_deviceRef, _usbBuffer, MAX_RECORD_LEN, Handle_HIDDeviceReportCallback, (__bridge void*)self);
 		CFRetain(_deviceRef);
 		
 		// Schedule in this run loop
@@ -86,28 +86,85 @@ static void Handle_HIDDeviceReportCallback(void *context,
 	return [self stringForUSBPropertyKey:CFSTR(kIOHIDManufacturerKey)];
 }
 
+- (NSInteger)maxInputReportSize {
+    return [self numberForUSBPropertyKey:CFSTR(kIOHIDMaxInputReportSizeKey)];
+}
+
+- (NSInteger)maxOutputReportSize {
+    return [self numberForUSBPropertyKey:CFSTR(kIOHIDMaxOutputReportSizeKey)];
+}
+
+
+#pragma mark - Get Report
+
+- (uint8_t *)getReportPage:(signed long)page reportType:(reportType)controltype {
+
+    NSParameterAssert((controltype == reportTypeFeature) || (controltype == reportTypeInput));
+
+    IOReturn tIOReturn;
+    IOHIDReportType type;
+
+    if (controltype == reportTypeFeature) {
+        type = kIOHIDReportTypeFeature;
+    } else {
+        type = kIOHIDReportTypeInput;
+    }
+
+    uint8_t *report = (uint8_t *)calloc(64, sizeof(uint8_t));
+    CFIndex len = 64;
+
+    tIOReturn = IOHIDDeviceGetReport(_deviceRef, type, page, report, &len);
+
+    return report;
+}
+
 #pragma mark - Send Messages
 
-- (void)sendControlInMessage:(NSData *)msg error:(NSError __autoreleasing * __nullable *)_error{
-	[self sendControlInMessage:msg withReportPage:0x0 error:_error];
+
+- (void)sendOutputReport:(NSData *)msg error:(NSError __autoreleasing * __nullable *)_error{
+
+    UInt8 *byteData = (UInt8 *)msg.bytes;
+    uint8_t *data_to_send;
+    size_t length_to_send;
+
+    if (byteData[0] == 0x0) {
+        /* Not using numbered Reports.
+         Don't send the report number. */
+        data_to_send = byteData + 1;
+        length_to_send = msg.length - 1;
+    } else {
+        /* Using numbered Reports.
+         Send the Report Number */
+        data_to_send = byteData;
+        length_to_send = msg.length;
+    }
+
+    [self sendMessageToHostWithData:msg reportPage:byteData[0] reportType:kIOHIDReportTypeOutput length:length_to_send error:_error];
 }
 
-- (void)sendControlInMessage:(NSData * __nonnull)msg withReportPage:(long)report error:(NSError *__autoreleasing  __nullable *)_error {
-	[self sendMessageToHostWithData:msg reportPage:report reportType:kIOHIDReportTypeInput error:_error];
+- (void)sendFeatureReport:(NSData *)msg error:(NSError __autoreleasing * __nullable *)_error{
+
+    UInt8 *byteData = (UInt8 *)msg.bytes;
+    uint8_t *data_to_send;
+    size_t length_to_send;
+
+    if (byteData[0] == 0x0) {
+        /* Not using numbered Reports.
+         Don't send the report number. */
+        data_to_send = byteData + 1;
+        length_to_send = msg.length - 1;
+    } else {
+        /* Using numbered Reports.
+         Send the Report Number */
+        data_to_send = byteData;
+        length_to_send = msg.length;
+    }
+
+    [self sendMessageToHostWithData:msg reportPage:byteData[0] reportType:kIOHIDReportTypeFeature length:length_to_send error:_error];
 }
 
 
-- (void)sendControlOutMessage:(NSData *)msg error:(NSError __autoreleasing * __nullable *)_error{
-	[self sendControlOutMessage:msg withReportPage:0x0 error:_error];
-}
-
-- (void)sendControlOutMessage:(NSData * __nonnull)msg withReportPage:(long)report error:(NSError *__autoreleasing  __nullable *)_error {
-	[self sendMessageToHostWithData:msg reportPage:report reportType:kIOHIDReportTypeOutput error:_error];
-}
-
-
-
-- (void)sendMessageToHostWithData:(NSData *)data reportPage:(signed long)page reportType:(IOHIDReportType)controltype error:(NSError __autoreleasing * __nullable *)_error{
+- (void)sendMessageToHostWithData:(NSData *)data reportPage:(signed long)page reportType:(IOHIDReportType)controltype length:(CFIndex)length error:(NSError __autoreleasing * __nullable *)_error{
 	
 	UInt8 *byteData = (UInt8 *)[data bytes];
 	
@@ -124,7 +181,8 @@ static void Handle_HIDDeviceReportCallback(void *context,
 	tIOReturn = IOHIDDeviceSetReport(_deviceRef,
 									 controltype,
 									 page, /* Report ID*/
-									 byteData, data.length);
+									 byteData,
+                                     length);
 	
 	
 	if (tIOReturn == kIOReturnSuccess) {
@@ -161,8 +219,6 @@ static void Handle_HIDDeviceReportCallback(void *context, IOReturn result, void 
 	
 	if (type == kIOHIDReportTypeInput) {
 		[device processInput:report withLength:reportLength];
-	} else if (type == kIOHIDReportTypeOutput) {
-		[device processOutput:report withLength:reportLength];
 	}
 }
 
@@ -176,21 +232,17 @@ static void Handle_HIDDeviceReportCallback(void *context, IOReturn result, void 
 	
 }
 
-- (void)processOutput:(uint8 *)byteData withLength:(signed long)length {
-	
-	NSData *data = [NSData dataWithBytes:byteData length:(NSUInteger)length];
-	
-	if (self.delegate != nil && [self.delegate respondsToSelector:@selector(didReceiveNewOutputData:)]) {
-		[self.delegate didReceiveNewOutputData:data];
-	}
-}
-
-
 #pragma mark - Private
 
 - (NSString *)stringForUSBPropertyKey:(CFStringRef)key {
 	return (__bridge NSString *)(IOHIDDeviceGetProperty(_deviceRef, key));
 }
+
+- (NSInteger)numberForUSBPropertyKey:(CFStringRef)key {
+    NSNumber *product = (__bridge NSNumber *)(IOHIDDeviceGetProperty(_deviceRef, key));
+    return [product integerValue];
+}
+
 
 - (id)propertyForKey:(NSString *)key {
 	return ((__bridge id)IOHIDDeviceGetProperty(_deviceRef, (__bridge CFStringRef)key));

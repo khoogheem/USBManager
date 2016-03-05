@@ -26,6 +26,12 @@
 
 #import <Foundation/Foundation.h>
 
+typedef NS_ENUM(uint8_t, reportType) {
+    reportTypeFeature  = 0,
+    reportTypeInput    = 1,
+
+};
+
 @protocol USBDeviceDelegate;
 
 @interface USBDevice : NSObject
@@ -56,39 +62,31 @@ The USB Product Name for the USBDevice.
 /// @name Messaging
 ///---------------------------------------------------------------------------------------
 
+
 /**
- Sends a Message to the Input report of the USB, where no report page is used.
+ Gets a Report Page of either OUTPUT or FEATURE
+ 
+ @params page The Report Page
+ @param controlType The USB Report type
+ @returns Report Data
+ */
+- (uint8_t * __nullable)getReportPage:(signed long)page reportType:(reportType)controltype;
+
+/**
+ Sends a Message to the Output report of the USB.
  
  @param msg The byte array to send to the USB Device
  @param error Any errors in sending will be sent back
  */
-- (void)sendControlInMessage:(NSData * __nonnull)msg error:(NSError __autoreleasing * __nullable * __nullable)error;
+- (void)sendOutputReport:(NSData * __nonnull)msg error:(NSError __autoreleasing * __nullable * __nullable)error;
 
 /**
- Sends a Message to the Input report of the USB with a specific report page.
- 
- @param msg The byte array to send to the USB Device.
- @param report The Report Page to send the message to.
- @param error Any errors in sending will be sent back.
- */
-- (void)sendControlInMessage:(NSData * __nonnull)msg withReportPage:(long)report error:(NSError __autoreleasing * __nullable * __nullable)error;
+ Sends a Message to the Feature report of the USB.
 
-/**
- Sends a Message to the Output report of the USB, where no report page is used.
- 
  @param msg The byte array to send to the USB Device
  @param error Any errors in sending will be sent back
  */
-- (void)sendControlOutMessage:(NSData * __nonnull)msg error:(NSError __autoreleasing * __nullable * __nullable)_error;
-
-/**
- Sends a Message to the Output report of the USB with a specific report page.
- 
- @param msg The byte array to send to the USB Device.
- @param report The Report Page to send the message to.
- @param error Any errors in sending will be sent back.
- */
-- (void)sendControlOutMessage:(NSData * __nonnull)msg withReportPage:(long)report error:(NSError *__autoreleasing  __nullable * __nullable)_error;
+- (void)sendFeatureReport:(NSData * __nonnull)msg error:(NSError __autoreleasing * __nullable * __nullable)error;
 
 @end
 
@@ -101,11 +99,5 @@ The USB Product Name for the USBDevice.
  Called when there is new Data From Input report
  */
 - (void)didReceiveNewInputData:(NSData * __nullable)data;
-
-/**
- Called when there is new Data From Control Out
- */
-- (void)didReceiveNewOutputData:(NSData * __nullable)data;
-
 
 @end
